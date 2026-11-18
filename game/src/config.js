@@ -1,84 +1,52 @@
-// Solmar Bay — every tuning number, colour and car type in one place.
-// The camera shows a fixed 1280x720 logical view; the world is 3600x2600 and the
-// renderer scales the view to the window, so no rule below depends on the screen.
-export const VIEW = { width: 1280, height: 720 };
-export const WORLD = { width: 3600, height: 2600 };
-export const STEP = 1 / 60;
+// Solmar Bay — configuration: world size, districts, vehicles, missions.
+// Every name, place and character here is original to this game.
+export const WORLD_W = 3600;
+export const WORLD_H = 2600;
+export const ROAD_W = 96;
+export const BLOCK = 400;
 
-// Vertical avenues and horizontal streets (centre lines, px). Roads are wide
-// enough for two lanes each way plus parking at the kerb.
-export const AVENUES = [400, 1000, 1600, 2200, 2800, 3200];
-export const STREETS = [350, 800, 1250, 1700, 2150];
-export const AVENUE_W = 120;
-export const STREET_W = 100;
-export const LANE = 20; // offset from a road centre line to a traffic lane
-
-// Water: the east beach strip and the south-east marina bay.
-export const WATER = [
-  { x: 3480, y: 0, w: 120, h: 2600 }, // open sea, east edge
-  { x: 2800, y: 2350, w: 800, h: 250 }, // marina bay, south-east
-];
-export const SAND = { x: 3300, y: 0, w: 180, h: 2350 }; // beach strip
-
-export const PLAYER = {
-  radius: 14, walk: 175, run: 290, hp: 100,
-  punchRange: 46, punchDamage: 34, punchCooldown: 0.38, punchArc: 1.1,
-  regenDelay: 5, regenRate: 3,
-};
-
-export const CAR_TYPES = {
-  sedan:  { name: 'Solmar Sedan',  len: 64, wid: 30, accel: 340, top: 520, reverse: 200, turn: 2.9,  colors: ['#c94f42', '#4f7ec9', '#c9c9c9', '#e8b23a', '#5aa469'] },
-  taxi:   { name: 'Bay Taxi',      len: 64, wid: 30, accel: 330, top: 500, reverse: 200, turn: 2.9,  colors: ['#f2c230'] },
-  hatch:  { name: 'Palm Hatch',    len: 54, wid: 28, accel: 360, top: 480, reverse: 210, turn: 3.2,  colors: ['#7ec8a9', '#e88ca0', '#8fa8d8', '#f2f2f2'] },
-  van:    { name: 'Cargo Van',     len: 76, wid: 32, accel: 260, top: 420, reverse: 170, turn: 2.4,  colors: ['#e8e4da', '#7a8a99', '#c96f2e'] },
-  truck:  { name: 'Flatbed Truck', len: 92, wid: 34, accel: 230, top: 400, reverse: 160, turn: 2.1,  colors: ['#b8542e', '#4a6b8a'] },
-  muscle: { name: 'V8 Bruto',      len: 68, wid: 32, accel: 420, top: 580, reverse: 220, turn: 2.7,  colors: ['#8a2f2f', '#2f2f3a', '#c97e1e'] },
-  sports: { name: 'Comet GT',      len: 66, wid: 30, accel: 520, top: 740, reverse: 240, turn: 3.4,  colors: ['#e83a5e', '#f2d13a'] },
-  police: { name: 'SBPD Cruiser',  len: 66, wid: 30, accel: 460, top: 640, reverse: 230, turn: 3.1,  colors: ['#20242e'] },
-};
-export const CAR_ORDER = ['sedan', 'hatch', 'taxi', 'van', 'muscle', 'truck'];
-
-export const WANTED = {
-  max: 5, decayHiddenSeconds: 8, unseenRadius: 620, unseenSeconds: 10,
-  fineBusted: 150, hospitalCut: 0.1,
-  crimeCooldown: 1.2, // one crash cannot stack several stars at once
-};
-
-export const POLICE = {
-  footSpeed: 235, footHp: 100, punchDamage: 12, bustSeconds: 1.1,
-  carRamDamage: 5, ramCooldownSeconds: 2, ramMinSpeed: 200, maxCars: 6, spawnDistance: 700, despawnDistance: 1500,
-};
-
-export const TRAFFIC = { count: 26, pedCount: 42, spawnRadius: 900, despawnRadius: 1300 };
-export const PICKUP = { packageValue: 100, cashDropMin: 10, cashDropMax: 30 };
-export const PAYNSPRAY = { cost: 100 };
-export const MISSION_REWARDS = { m1: 300, m2: 500, m3: 600, m4: 900, m5: 2000 };
-
-export const PALETTE = {
-  grass: '#7cc46a', grassDry: '#a8cf7e', sand: '#f0d193', water: '#2fa8c9',
-  waterDeep: '#1f86ad', road: '#3a3a46', roadEdge: '#2c2c36', sidewalk: '#c9c2b2',
-  lane: '#f7d774', kerb: '#8f887a', park: '#5da24e', tree: '#2f7d3a',
-  plaza: '#b9b2a2', roofA: '#e07856', roofB: '#f2b04e', roofC: '#6fb7d9',
-  roofD: '#e88ca0', roofE: '#9b7ec2', roofF: '#7ec8a9', glass: '#5a7ba6',
-  glassHi: '#8fb4d9', warehouse: '#a89a80', wall: '#6b6258',
-  player: '#ff6b5e', playerDark: '#2b2b33', cop: '#20242e', copBlue: '#2f6fd0',
-  marker: '#ffd23a', blipMission: '#ffd23a', blipPolice: '#ff3b30',
-  blipPackage: '#34e07a', blipSpray: '#4fc3f7', blipPlayer: '#ffffff',
-  hudPanel: 'rgba(12,14,20,0.72)', hudText: '#f4f6f8', hudMuted: '#aab2bd',
-  star: '#ffd23a', starEmpty: 'rgba(255,255,255,0.25)',
-  cash: '#7de07a', damage: '#ff5a4e',
-};
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-export const SAVE_KEY = 'solmar-bay.save.v1';
-export const BEST_KEY = 'solmar-bay.best.v1';
-
-// District names shown on the HUD when the player crosses into one.
 export const DISTRICTS = [
-  { name: 'Old Town', x: 0, y: 0, w: 1000, h: 1250 },
-  { name: 'Downtown', x: 1000, y: 350, w: 1800, h: 1350 },
-  { name: 'Palm Heights', x: 2200, y: 0, w: 1400, h: 800 },
-  { name: 'Marina', x: 2200, y: 1700, w: 1400, h: 900 },
-  { name: 'Industrial', x: 0, y: 1700, w: 1000, h: 900 },
-  { name: 'Beachfront', x: 3200, y: 0, w: 400, h: 2600 },
+  { name: 'Old Town', x: 0, y: 0, w: 1200, h: 900, tint: '#e8d9b0' },
+  { name: 'Downtown', x: 1200, y: 0, w: 1200, h: 900, tint: '#c9d4e8' },
+  { name: 'Palm Heights', x: 2400, y: 0, w: 1000, h: 900, tint: '#d8e8c9' },
+  { name: 'Marina', x: 2400, y: 1700, w: 1000, h: 900, tint: '#bcd8e8' },
+  { name: 'Industrial', x: 0, y: 1700, w: 1200, h: 900, tint: '#d8cbb8' },
+  { name: 'Beachfront', x: 1200, y: 1700, w: 1200, h: 900, tint: '#f0e2c0' },
 ];
+
+export const VEHICLES = {
+  sedan:   { name: 'Sedan',      top: 240, accel: 150, grip: 2.6, color: '#4a7ec2', len: 46, wid: 22 },
+  taxi:    { name: 'Cab',        top: 230, accel: 145, grip: 2.6, color: '#e8b820', len: 46, wid: 22 },
+  hatch:   { name: 'Hatchback',  top: 215, accel: 160, grip: 2.9, color: '#c25a4a', len: 40, wid: 20 },
+  van:     { name: 'Van',        top: 195, accel: 120, grip: 2.2, color: '#7a8a9a', len: 52, wid: 24 },
+  truck:   { name: 'Hauler',     top: 180, accel: 105, grip: 2.0, color: '#8a6a3a', len: 58, wid: 26 },
+  muscle:  { name: 'Muscle',     top: 265, accel: 185, grip: 2.3, color: '#a03a5a', len: 48, wid: 23 },
+  sports:  { name: 'Comet GT',   top: 310, accel: 215, grip: 3.1, color: '#e8e840', len: 46, wid: 21 },
+  police:  { name: 'Cruiser',    top: 275, accel: 195, grip: 2.9, color: '#2a2a34', len: 48, wid: 23 },
+};
+
+export const MISSIONS = [
+  { id: 1, name: 'First Wheels', giver: 'Rico', reward: 300,
+    brief: 'Rico needs wheels. Steal any car and bring it back to the garage.' },
+  { id: 2, name: 'Package Run', giver: 'Rico', reward: 500,
+    brief: 'Three packages, three drop-offs across town. Do not dawdle.' },
+  { id: 3, name: 'Taxi Shift', giver: 'Rico', reward: 600, timeLimit: 240,
+    brief: 'Drive a cab, pick up 3 fares and drop them off. 4 minutes on the clock.' },
+  { id: 4, name: 'Hot Pursuit', giver: 'Rico', reward: 900,
+    brief: 'A Comet GT is waiting at the Marina. Take it. The cops will notice.' },
+  { id: 5, name: 'The Bay Heist', giver: 'Rico', reward: 2000, vaultCash: 2000,
+    brief: 'Crack the Downtown vault, grab the cash, and lose the heat at the hideout.' },
+];
+
+export const GARAGE = { x: 560, y: 560 };
+export const HIDEOUT = { x: 2900, y: 2100 };
+export const VAULT = { x: 1560, y: 360 };
+export const SPRAY = { x: 900, y: 1960 };
+export const MARINA_DOCK = { x: 3150, y: 2250 };
+export const PACKAGE_COUNT = 15;
+export const SAVE_KEY = 'solmar-bay-save-v1';
+export const START_CASH = 50;
+export const BEACH_X = 3300;
+export const SEA_X = 3520;
+export const WANTED_COOL_HIDE = 10;
+export const WANTED_COOL_STEP = 8;
