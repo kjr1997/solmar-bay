@@ -1,50 +1,54 @@
-// Solmar Bay — the gta6-01 entry program (Node 22, standard library only).
-// The game is this directory's game/ folder: plain static files a desktop
-// browser loads offline (game/index.html plus its ES modules, no library and
-// no network request). This program hands it in: it copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json,
-// the summary the judge reads, with the vendored make.fun library.
-//
-// The game itself is a top-down open-world crime game: a 3600x2600 coastal
-// city with avenues and streets, traffic and pedestrians, cars to steal and
-// drive, a five-job story from the fixer Rico, a wanted level with foot cops
-// and cruisers, hidden packages, taxi fares, a spray shop, a HUD with a
-// minimap, synthesized sound, and a save in localStorage.
-//
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// Solmar Bay — submission program (Node 22, standard library only).
+// Copies game/ and screenshots/ into the output directory and writes the
+// dossier.json that buildDossier produces from them, byte for byte.
 import { buildDossier } from './vendor/makefun-game.ts';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const root = path.dirname(fileURLToPath(import.meta.url));
+const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
 
-function handIn() {
-  mkdirSync(out, { recursive: true });
-  cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-  mkdirSync(join(out, 'screenshots'), { recursive: true });
-  if (existsSync(join(here, 'screenshots'))) {
-    cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+function listFiles(dir, base = '') {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const files = [];
+  for (const entry of entries) {
+    const rel = base ? `${base}/${entry.name}` : entry.name;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...listFiles(full, rel));
+    else if (entry.isFile()) files.push(rel);
   }
-  // The scorer's own caps (reference/gate.json): only text_max_bytes shapes
-  // the bytes; the rest refuse an entry the scorer would refuse (more than 4
-  // screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB
-  // of game files in all, or a path under game/ over 1000 bytes: game/ counts
-  // beside /output's own 1000-entry cap, its screenshots/ and dossier.json).
-  writeFileSync(
-    join(out, 'dossier.json'),
-    buildDossier(out, {
-      text_max_bytes: 163840,
-      screenshots: { max: 4, max_bytes: 262144 },
-      game_max_files: 993,
-      game_max_bytes: 50331648,
-      game_path_max_bytes: 1000,
-    }),
-  );
+  return files;
 }
 
-handIn();
+function copyTree(srcDir, destDir) {
+  for (const rel of listFiles(srcDir)) {
+    const src = path.join(srcDir, rel);
+    const dest = path.join(destDir, rel);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+  }
+}
+
+function main() {
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  copyTree(path.join(root, 'game'), path.join(outDir, 'game'));
+  copyTree(path.join(root, 'screenshots'), path.join(outDir, 'screenshots'));
+  const dossier = buildDossier(outDir, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 48 * 1024 * 1024,
+    game_path_max_bytes: 1000,
+  });
+  fs.writeFileSync(path.join(outDir, 'dossier.json'), dossier);
+  // Sanity: the dossier must stay under the 1.5 MiB gate cap.
+  if (dossier.length > 1536 * 1024) throw new Error(`dossier too large: ${dossier.length} bytes`);
+  const gameFiles = listFiles(path.join(outDir, 'game')).length;
+  const shotFiles = listFiles(path.join(outDir, 'screenshots')).length;
+  console.log(`Solmar Bay: ${gameFiles} game files, ${shotFiles} screenshots, dossier ${dossier.length} bytes -> ${outDir}`);
+}
+
+main();
