@@ -1,17 +1,27 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solmar Bay — Open-World Crime Game</title>
-<meta name="description" content="Solmar Bay: a top-down 2D open-world crime game. Steal cars, outrun the law, work five jobs for Rico. Runs fully offline.">
+<title>Solmar Bay — a top-down open-world crime game</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; background: #0a1420; overflow: hidden; }
-  #game { display: block; width: 100vw; height: 100vh; }
+  html, body { margin: 0; padding: 0; background: #0e1420; height: 100%; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #wrap { position: relative; width: 100vw; height: 100vh; }
+  canvas {
+    display: block;
+    width: 100vw; height: 100vh;
+    object-fit: contain;
+    background: #0e1420;
+    image-rendering: auto;
+  }
 </style>
 </head>
 <body>
-<canvas id="game"></canvas>
+<div id="wrap">
+  <canvas id="game" width="1280" height="720"></canvas>
+  <noscript><p style="color:#fff;font-family:sans-serif;text-align:center">Solmar Bay needs JavaScript to play.</p></noscript>
+</div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
