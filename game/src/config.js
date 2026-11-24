@@ -1,84 +1,77 @@
-// Solmar Bay — world constants, vehicle specs, mission definitions.
-// Everything every other module needs to agree on lives here and nowhere else.
+// Solmar Bay — configuration: world size, districts, vehicles, missions.
+// All tuning values for the open-world crime game live here.
 export const WORLD_W = 3600;
 export const WORLD_H = 2600;
-
-// Avenues run north-south, streets east-west. Road width 84, sidewalk 14.
-export const AVENUES = [240, 760, 1280, 1800, 2320, 2840];
-export const STREETS = [240, 720, 1200, 1680, 2160];
-export const ROAD_W = 84;
-
-// The sea and the beach live on the east edge; the marina bay cuts in at the
-// south-east corner and joins the sea.
-export const BEACH_X = 3050; // sand starts here
-export const SEA_X = 3450; // water starts here
-export const BAY = { x0: 2880, y0: 2080, x1: SEA_X, y1: WORLD_H };
-
-// Central park (a green block with trees, no buildings).
-export const PARK = { x0: 1290, y0: 1210, x1: 1790, y1: 1670 };
-
-// Fixed city landmarks, in world coordinates.
-export const GARAGE = { x: 1280, y: 300 }; // Rico's garage, mission 1 drop-off
-export const SPRAY = { x: 2320, y: 1680 }; // Pay 'n Spray
-export const HIDEOUT = { x: 520, y: 1980 }; // mission 5 escape point
-export const VAULT = { x: 2050, y: 950 }; // Downtown bank vault, mission 5
-export const DOCKS = { x: 3060, y: 2260 }; // marina docks, Comet GT spawns here
-export const HOSPITAL = { x: 760, y: 720 }; // respawn after being busted / down
-export const POLICE_HQ = { x: 1800, y: 240 }; // where busted players wake up
-
-export const DISTRICTS = [
-  { name: 'Old Town', color: '#c98f4e' },
-  { name: 'Downtown', color: '#7fa3c9' },
-  { name: 'Palm Heights', color: '#8fc97f' },
-  { name: 'Marina', color: '#6fc4c9' },
-  { name: 'Industrial', color: '#b08d7a' },
-  { name: 'Beachfront', color: '#e8c96a' },
-];
-
-// District by position. Beachfront first (east edge), then Marina (south-east),
-// Industrial (south-west), Palm Heights (north-east), Downtown (centre),
-// Old Town (north-west).
-export function districtAt(x, y) {
-  if (x >= BEACH_X) return 'Beachfront';
-  if (x >= 2100 && y >= 1680) return 'Marina';
-  if (x < 900 && y >= 1200) return 'Industrial';
-  if (x >= 2100 && y < 1680) return 'Palm Heights';
-  if (x >= 900 && x < 2100 && y < 1200) return 'Downtown';
-  if (x < 900 && y < 1200) return 'Old Town';
-  return 'Downtown';
-}
-
-// Vehicle types: top speed (units/s), acceleration, turn rate (rad/s at full
-// speed), body length/width, colour. Police cruisers are locked: you cannot
-// drive one away.
-export const VEHICLES = {
-  sedan: { name: 'Sedan', top: 265, accel: 210, turn: 2.5, len: 46, wid: 22, color: '#c94f42', locked: false },
-  taxi: { name: 'Taxi', top: 275, accel: 220, turn: 2.6, len: 46, wid: 22, color: '#f2c230', locked: false },
-  hatch: { name: 'Hatchback', top: 240, accel: 230, turn: 2.9, len: 40, wid: 20, color: '#4f8fd0', locked: false },
-  van: { name: 'Van', top: 200, accel: 150, turn: 2.0, len: 54, wid: 24, color: '#e8e4da', locked: false },
-  truck: { name: 'Truck', top: 180, accel: 130, turn: 1.7, len: 62, wid: 26, color: '#7a7f85', locked: false },
-  muscle: { name: 'Muscle', top: 305, accel: 260, turn: 2.2, len: 48, wid: 23, color: '#8e2f8f', locked: false },
-  sports: { name: 'Comet GT', top: 365, accel: 300, turn: 2.7, len: 46, wid: 22, color: '#e8b400', locked: false },
-  police: { name: 'Police Cruiser', top: 325, accel: 280, turn: 2.6, len: 48, wid: 23, color: '#2b3a55', locked: true },
-};
-export const VEHICLE_TYPES = Object.keys(VEHICLES);
-
-// Rico's five jobs, unlocked in order. reward is the job pay; mission 5 also
-// pays vaultCash on top.
-export const MISSIONS = [
-  { id: 0, name: 'First Wheels', reward: 300, text: 'Steal any car and drive it back to Rico\'s garage.' },
-  { id: 1, name: 'Package Run', reward: 500, text: 'Deliver 3 packages around the city.' },
-  { id: 2, name: 'Taxi Shift', reward: 600, text: 'Pick up 3 fares before the clock runs out (240s).' },
-  { id: 3, name: 'Hot Pursuit', reward: 900, text: 'Steal the Comet GT from the docks and bring it to the drop-off. 3 stars!' },
-  { id: 4, name: 'The Bay Heist', reward: 2000, vaultCash: 2000, text: 'Crack the vault (stand by it 3s), then lose the heat and reach the hideout. 4 stars!' },
-];
-
-export const PACKAGE_VALUE = 100;
-export const PACKAGE_COUNT = 15;
-export const SPRAY_COST = 100;
-export const TAXI_FARE = 60; // free-roam fare after the mission line is done
-export const FARE_TIP = 50; // tip per fare during the Taxi Shift job
-export const WANTED_MAX = 5;
-export const HIDE_SECONDS = 10; // unseen this long before stars start falling
-export const STAR_DROP_SECONDS = 8; // one star per this many hidden seconds
 export const SAVE_KEY = 'solmar-bay-save-v1';
+
+// Avenues (vertical roads) and streets (horizontal roads), centre lines.
+export const AVENUES = [300, 800, 1300, 1800, 2300, 2800];
+export const STREETS = [300, 700, 1100, 1500, 1900, 2300];
+export const ROAD_W = 96;
+
+// Six districts of Solmar Bay, by rectangular bounds.
+export const DISTRICTS = [
+  { name: 'Old Town', x: 0, y: 0, w: 1050, h: 900, ground: '#8a7a5c' },
+  { name: 'Downtown', x: 1050, y: 0, w: 1000, h: 900, ground: '#7d7468' },
+  { name: 'Palm Heights', x: 2050, y: 0, w: 1050, h: 900, ground: '#9c8f6a' },
+  { name: 'Marina', x: 2050, y: 1700, w: 1050, h: 900, ground: '#6f7d72' },
+  { name: 'Industrial', x: 0, y: 1700, w: 1050, h: 900, ground: '#6e6a63' },
+  { name: 'Beachfront', x: 3100, y: 0, w: 500, h: 2600, ground: '#e8d5a2' },
+];
+
+// Beach sand strip and the sea east of it.
+export const BEACH_X = 3120;
+export const SEA_X = 3360;
+
+// Key places in the city.
+export const PLACES = {
+  garage: { x: 800, y: 1500, label: 'Rico\'s Garage' },
+  hideout: { x: 300, y: 300, label: 'Hideout' },
+  spray: { x: 2300, y: 1900, label: "Pay 'n Spray" },
+  marinaDock: { x: 2850, y: 2250, label: 'Marina Dock' },
+  park: { x: 1300, y: 1100, w: 500, h: 400, label: 'Palm Park' },
+  parkingLot: { x: 1800, y: 1500, w: 500, h: 400, label: 'Downtown Lot' },
+};
+
+// Eight drivable vehicle types. topSpeed in px/s, accel px/s^2, grip 0..1.
+export const CAR_TYPES = {
+  sedan:   { name: 'Sedan',    topSpeed: 330, accel: 240, grip: 0.72, color: '#4a7fb5', w: 46, h: 22 },
+  taxi:    { name: 'Taxi',     topSpeed: 320, accel: 250, grip: 0.74, color: '#e8b820', w: 46, h: 22 },
+  hatch:   { name: 'Hatchback',topSpeed: 300, accel: 270, grip: 0.80, color: '#c65a3c', w: 42, h: 21 },
+  van:     { name: 'Van',      topSpeed: 260, accel: 190, grip: 0.60, color: '#8a8f96', w: 54, h: 24 },
+  truck:   { name: 'Truck',    topSpeed: 240, accel: 170, grip: 0.55, color: '#5a6e46', w: 60, h: 26 },
+  muscle:  { name: 'Muscle',   topSpeed: 380, accel: 300, grip: 0.66, color: '#a83232', w: 48, h: 23 },
+  sports:  { name: 'Comet GT', topSpeed: 430, accel: 340, grip: 0.86, color: '#e8e8e8', w: 46, h: 21 },
+  police:  { name: 'Cruiser',  topSpeed: 390, accel: 320, grip: 0.82, color: '#20242c', w: 48, h: 23 },
+};
+
+export const PLAYER_WALK = 170;
+export const PLAYER_RUN = 265;
+export const PLAYER_PUNCH_RANGE = 34;
+export const PLAYER_PUNCH_DAMAGE = 34;
+export const SPRAY_COST = 100;
+export const PACKAGE_VALUE = 100;
+export const HIDDEN_PACKAGES = 15;
+export const WANTED_DECAY_HIDDEN_S = 10;
+export const WANTED_DECAY_STEP_S = 8;
+export const ARREST_HOLD_S = 1.1;
+export const TAXI_FARE_MIN = 40;
+export const TAXI_FARE_MAX = 90;
+export const HP_REGEN_PER_S = 2;
+
+// The five Rico missions, in unlock order.
+export const MISSIONS = [
+  { id: 0, name: 'First Wheels', reward: 300,
+    brief: 'Steal any car and bring it back to Rico\'s Garage.' },
+  { id: 1, name: 'Package Run', reward: 500,
+    brief: 'Deliver 3 packages to the marked drop points.' },
+  { id: 2, name: 'Taxi Shift', reward: 600, timeLimit: 240,
+    brief: 'Pick up 3 fares in your taxi before the clock runs out.' },
+  { id: 3, name: 'Hot Pursuit', reward: 900,
+    brief: 'Steal the Comet GT from the Marina dock and deliver it — the cops will be all over you.' },
+  { id: 4, name: 'The Bay Heist', reward: 2000, vaultBonus: 2000,
+    brief: 'Crack the Downtown vault on foot, grab the cash, and lose the cops at the Hideout.' },
+];
+
+export const START_CASH = 50;
+export const START_POS = { x: 800, y: 1560 };

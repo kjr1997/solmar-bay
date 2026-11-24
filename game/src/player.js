@@ -1,149 +1,144 @@
-// The player on foot: WASD movement, Shift sprint, Space punch, E to enter
-// or leave a car. Health, arrest handling and the punch arc live here.
-import { WORLD_W, WORLD_H } from './config.js';
-import { collideWorld } from './world.js';
-import { knockDown } from './peds.js';
+// Solmar Bay — the player on foot: movement, punching, entering cars,
+// getting arrested, and picking up cash and hidden packages.
+import { PLAYER_WALK, PLAYER_RUN, PLAYER_PUNCH_RANGE, PLAYER_PUNCH_DAMAGE,
+  START_POS, HP_REGEN_PER_S } from './config.js';
+import { circleHitsBuilding, isInSea, clampToWorld } from './world.js';
 
-export function makePlayer(x, y) {
+export function makePlayer() {
   return {
-    x, y, angle: -Math.PI / 2, speed: 0,
-    health: 100, inCar: null, // the vehicle object when driving
-    punching: false, punchTimer: 0, punchCooldown: 0,
-    arrested: 0, // seconds left held by a cop (arrest in progress)
-    busted: false,
-    moving: false, running: false,
+    x: START_POS.x, y: START_POS.y, angle: -Math.PI / 2,
+    hp: 100, cash: 50, inCar: null,
+    punchTimer: 0, punchCooldown: 0, arrested: 0,
+    walkPhase: 0, moving: false, running: false,
   };
 }
 
-// Returns events the main loop turns into sound / wanted / cash changes:
-// { punched: [peds hit], carHit: bool }
-export function updatePlayer(game, dt) {
-  const { player, input, world, peds, cars, sound } = game;
-  const events = { punched: [], carHit: false, entered: null, exited: false };
-  if (player.arrested > 0) {
-    player.arrested -= dt;
-    if (player.arrested <= 0) {
-      player.busted = true;
-    }
-    return events;
-  }
-
-  // --- In a car: driving is handled by vehicles.js; E gets out. ---
-  if (player.inCar) {
-    const car = player.inCar;
-    player.x = car.x;
-    player.y = car.y;
-    player.angle = car.angle;
-    if (input.hit('KeyE')) {
-      // Step out to the side of the car, clear of buildings.
-      const side = Math.PI / 2;
-      const ox = car.x + Math.cos(car.angle + side) * 34;
-      const oy = car.y + Math.sin(car.angle + side) * 34;
-      player.x = ox;
-      player.y = oy;
-      collideWorld(world, player, 12);
-      car.driver = 'none';
-      player.inCar = null;
-      events.exited = true;
-    }
-    return events;
-  }
-
-  // --- On foot. ---
+// Move on foot. Returns an event string ('punched' etc.) or null.
+export function updatePlayerOnFoot(player, input, dt, game) {
+  if (player.arrested > 0) { player.arrested -= dt; return null; }
   const mv = input.moveVector();
-  const running = input.held('ShiftLeft') || input.held('ShiftRight');
-  const speed = running ? 235 : 140;
-  player.moving = mv.active;
-  player.running = running && mv.active;
-  if (mv.active) {
+  player.running = input.isDown('ShiftLeft') || input.isDown('ShiftRight');
+  const speed = player.running ? PLAYER_RUN : PLAYER_WALK;
+  player.moving = mv.x !== 0 || mv.y !== 0;
+  if (player.moving) {
     player.angle = Math.atan2(mv.y, mv.x);
+    player.walkPhase += dt * (player.running ? 13 : 8);
     const nx = player.x + mv.x * speed * dt;
     const ny = player.y + mv.y * speed * dt;
-    const before = { x: player.x, y: player.y };
-    player.x = nx;
-    player.y = ny;
-    const hitWall = collideWorld(world, player, 12);
-    if (hitWall) {
-      // Slide along the wall instead of sticking: retry each axis alone.
-      player.x = before.x;
-      player.y = ny;
-      collideWorld(world, player, 12);
-      if (Math.abs(player.y - ny) > 1) { player.y = before.y; player.x = nx; collideWorld(world, player, 12); }
+    const blocked = circleHitsBuilding(nx, ny, 13, game.city.buildings) || isInSea(nx, ny);
+    if (!blocked) {
+      const clamped = clampToWorld(nx, ny);
+      player.x = clamped.x; player.y = clamped.y;
+    } else {
+      // Slide along walls: try each axis separately.
+      if (!circleHitsBuilding(nx, player.y, 13, game.city.buildings) && !isInSea(nx, player.y)) player.x = clampToWorld(nx, player.y).x;
+      else if (!circleHitsBuilding(player.x, ny, 13, game.city.buildings) && !isInSea(player.x, ny)) player.y = clampToWorld(player.x, ny).y;
     }
   }
-
-  // Punch: a 0.28 s swing, hits peds (and cops) in a 46-unit arc in front.
-  player.punchCooldown -= dt;
-  if (input.hit('Space') && player.punchCooldown <= 0) {
-    player.punching = true;
-    player.punchTimer = 0.28;
-    player.punchCooldown = 0.45;
-    sound.punch();
-    for (const ped of peds) {
-      if (ped.state === 'down') continue;
-      const d = Math.hypot(ped.x - player.x, ped.y - player.y);
-      if (d > 52) continue;
-      const ang = Math.atan2(ped.y - player.y, ped.x - player.x);
-      let diff = Math.abs(ang - player.angle);
-      if (diff > Math.PI) diff = Math.PI * 2 - diff;
-      if (diff < 1.1) {
-        const cash = knockDown(ped);
-        events.punched.push({ ped, cash });
-      }
-    }
-    // A punch also floors a cop who gets too close — but that adds heat.
-    for (const cop of game.cops) {
-      if (cop.state === 'down') continue;
-      const d = Math.hypot(cop.x - player.x, cop.y - player.y);
-      if (d > 52) continue;
-      const ang = Math.atan2(cop.y - player.y, cop.x - player.x);
-      let diff = Math.abs(ang - player.angle);
-      if (diff > Math.PI) diff = Math.PI * 2 - diff;
-      if (diff < 1.1) {
-        cop.state = 'down';
-        cop.downTimer = 3;
-        events.punched.push({ ped: cop, cash: 0 });
-      }
-    }
+  if (player.punchCooldown > 0) player.punchCooldown -= dt;
+  if (player.punchTimer > 0) player.punchTimer -= dt;
+  // Slow health regen while the heat is off.
+  if (game.wanted.stars === 0 && player.hp > 0) {
+    player.hp = Math.min(100, player.hp + HP_REGEN_PER_S * dt);
   }
-  if (player.punching) {
-    player.punchTimer -= dt;
-    if (player.punchTimer <= 0) player.punching = false;
+  if (input.wasPressed('Space') && player.punchCooldown <= 0) {
+    player.punchTimer = 0.22;
+    player.punchCooldown = 0.42;
+    game.audio.punch();
+    return tryPunch(player, game);
   }
-
-  // E: get into the nearest unlocked car within 64 units.
-  if (input.hit('KeyE')) {
-    let best = null;
-    let bestD = 64;
-    for (const car of cars) {
-      if (car.dead || car.driver === 'police') continue;
-      if (car.spec.locked) continue;
-      const d = Math.hypot(car.x - player.x, car.y - player.y);
-      if (d < bestD) { best = car; bestD = d; }
-    }
-    if (best) {
-      const occupied = best.driver === 'traffic';
-      player.inCar = best;
-      best.driver = 'player';
-      best.speed = 0;
-      events.entered = { car: best, carjack: occupied };
-      if (occupied) {
-        // The driver is yanked out and legs it (handled by the caller via
-        // the carjack flag: a pedestrian appears at the car).
-      }
-    }
-  }
-  return events;
+  return null;
 }
 
-// A cop has grabbed the player: held 1.1 s, then busted.
-export function startArrest(player) {
-  if (player.arrested > 0 || player.inCar) return;
-  player.arrested = 1.1;
+// Punch the nearest pedestrian or cop in front of the player.
+export function tryPunch(player, game) {
+  const px = player.x + Math.cos(player.angle) * PLAYER_PUNCH_RANGE;
+  const py = player.y + Math.sin(player.angle) * PLAYER_PUNCH_RANGE;
+  for (const ped of game.peds) {
+    if (ped.down > 0) continue;
+    if (Math.hypot(ped.x - px, ped.y - py) < 30) {
+      ped.hp -= PLAYER_PUNCH_DAMAGE;
+      ped.flee = 1.5;
+      if (ped.hp <= 0) {
+        ped.down = 6;
+        ped.hp = 100;
+        const drop = 8 + Math.floor(Math.random() * 30);
+        game.cashDrops.push({ x: ped.x, y: ped.y, amount: drop, t: 0 });
+        game.addWanted(1, 'assault');
+      } else {
+        game.addWanted(1, 'assault');
+      }
+      return 'punched-ped';
+    }
+  }
+  for (const cop of game.cops) {
+    if (Math.hypot(cop.x - px, cop.y - py) < 32) {
+      cop.hp -= PLAYER_PUNCH_DAMAGE;
+      if (cop.hp <= 0) { cop.down = 8; cop.hp = 100; game.addWanted(1, 'assault'); }
+      return 'punched-cop';
+    }
+  }
+  return 'punched-air';
 }
 
-export function healPlayer(player, dt) {
-  if (!player.inCar && player.health < 100) {
-    player.health = Math.min(100, player.health + 1.5 * dt);
+// Find the nearest car the player can enter (within 70 px).
+export function nearestEnterableCar(player, cars) {
+  let best = null, bestD = 70;
+  for (const car of cars) {
+    if (car.isPolice) continue; // police cruisers are locked
+    const d = Math.hypot(car.x - player.x, car.y - player.y);
+    if (d < bestD) { bestD = d; best = car; }
+  }
+  return best;
+}
+
+// Enter a car. Returns 'stole' when it had a driver, 'entered' when empty.
+export function enterCar(player, car, game) {
+  player.inCar = car;
+  car.occupied = true;
+  car.driver = 'player';
+  if (car.isTraffic) {
+    car.isTraffic = false;
+    game.addWanted(1, 'carjack');
+    return 'stole';
+  }
+  return 'entered';
+}
+
+// Step out of the car, beside it.
+export function exitCar(player) {
+  const car = player.inCar;
+  if (!car) return;
+  player.inCar = null;
+  car.occupied = false;
+  car.driver = null;
+  const side = car.angle + Math.PI / 2;
+  player.x = car.x + Math.cos(side) * 34;
+  player.y = car.y + Math.sin(side) * 34;
+  player.angle = car.angle;
+}
+
+// Collect cash drops and hidden packages the player walks or drives over.
+export function collectPickups(player, game, dt) {
+  const pos = player.inCar || player;
+  for (const drop of game.cashDrops) {
+    drop.t += dt;
+    if (Math.hypot(drop.x - pos.x, drop.y - pos.y) < 34) {
+      player.cash += drop.amount;
+      drop.gone = true;
+      game.audio.cash();
+      game.toast('$' + drop.amount + ' picked up');
+    }
+  }
+  game.cashDrops = game.cashDrops.filter((d) => !d.gone && d.t < 30);
+  for (const pkg of game.city.packages) {
+    if (pkg.taken) continue;
+    if (Math.hypot(pkg.x - pos.x, pkg.y - pos.y) < 36) {
+      pkg.taken = true;
+      player.cash += 100;
+      game.packagesFound++;
+      game.audio.pickup();
+      game.toast('Hidden package found! +$100 (' + game.packagesFound + '/15)');
+    }
   }
 }

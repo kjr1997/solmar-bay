@@ -1,45 +1,41 @@
-// Keyboard input: held keys plus edge-triggered "just pressed" keys, so the
-// game can tell a tap (E, Space on the title screen) from a hold (WASD).
+// Solmar Bay — keyboard input. Tracks held keys and edge-triggered presses.
 export class Input {
   constructor() {
     this.down = new Set();
     this.pressed = new Set();
     this.anyKey = false;
-    window.addEventListener('keydown', (e) => {
-      if (e.repeat) return;
+    this.onKeyDown = (e) => {
+      const gameKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyE',
+        'KeyP', 'KeyH', 'KeyM', 'KeyN', 'Escape', 'ShiftLeft', 'ShiftRight',
+        'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+      if (gameKeys.includes(e.code)) e.preventDefault();
+      if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
-      this.pressed.add(e.code);
       this.anyKey = true;
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
-        e.preventDefault();
-      }
-    });
-    window.addEventListener('keyup', (e) => this.down.delete(e.code));
-    window.addEventListener('blur', () => this.down.clear());
+    };
+    this.onKeyUp = (e) => { this.down.delete(e.code); };
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
   }
 
-  held(code) { return this.down.has(code); }
-
-  // True if any of the given codes was just pressed this frame.
-  hitAny(codes) { return codes.some((c) => this.pressed.has(c)); }
+  isDown(code) { return this.down.has(code); }
 
   // True once, on the frame the key went down. Consumed by endFrame().
-  hit(code) { return this.pressed.has(code); }
+  wasPressed(code) { return this.pressed.has(code); }
 
-  axis(neg, pos) {
-    return (this.down.has(pos) ? 1 : 0) - (this.down.has(neg) ? 1 : 0);
-  }
-
-  // WASD plus arrow keys, normalised.
+  // WASD / arrow movement vector, normalised.
   moveVector() {
-    const x = this.axis('KeyA', 'KeyD') + this.axis('ArrowLeft', 'ArrowRight');
-    const y = this.axis('KeyW', 'KeyS') + this.axis('ArrowUp', 'ArrowDown');
-    const len = Math.hypot(x, y) || 1;
-    return { x: x / len, y: y / len, active: x !== 0 || y !== 0 };
+    let x = 0, y = 0;
+    if (this.down.has('KeyA') || this.down.has('ArrowLeft')) x -= 1;
+    if (this.down.has('KeyD') || this.down.has('ArrowRight')) x += 1;
+    if (this.down.has('KeyW') || this.down.has('ArrowUp')) y -= 1;
+    if (this.down.has('KeyS') || this.down.has('ArrowDown')) y += 1;
+    if (x !== 0 && y !== 0) { x *= Math.SQRT1_2; y *= Math.SQRT1_2; }
+    return { x, y };
   }
 
-  endFrame() {
-    this.pressed.clear();
-    this.anyKey = false;
-  }
+  endFrame() { this.pressed.clear(); this.anyKey = false; }
+
+  // Drop all held state (used when the window loses focus mid-drive).
+  clear() { this.down.clear(); this.pressed.clear(); }
 }
