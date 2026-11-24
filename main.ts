@@ -1,46 +1,43 @@
-// Solmar Bay — gta6-01 entry program (Node 22, standard library only).
-// The game lives in this directory's game/ folder: plain static files a desktop
-// browser loads offline (game/index.html plus its ES modules, no library, no
-// network request). This program hands it in: it copies game/ and screenshots/
-// from beside this file into the output directory and writes dossier.json,
-// the summary the judge reads, using the vendored make.fun library.
-//
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-// Serve the game locally with `node serve.ts`, then open http://localhost:8080.
-
+// Solmar Bay — entrypoint program (make.fun gta6-01, program/v1).
+// Copies game/ and screenshots/ next to this file into the output directory
+// (MAKEFUN_OUTPUT_DIR, or /output when unset) and writes dossier.json there
+// with buildDossier from the vendored make.fun library. Node 22 stdlib only.
+// The run is fully deterministic: directory order is sorted, file contents
+// are copied byte for byte, and dossier.json is whatever buildDossier writes
+// from the copied tree, so two runs produce identical bytes.
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const REPO_ROOT = dirname(fileURLToPath(import.meta.url));
+const OUTPUT_DIR = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
 
-// Start from a clean slate so a stale file from an older run can never leak
-// into the handed-in output and break the byte-for-byte reproducibility.
-rmSync(outDir, { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
-const indexHtml = join(here, 'game', 'index.html');
-if (!existsSync(indexHtml)) {
-  throw new Error(`main.ts: ${indexHtml} is missing — nothing to hand in`);
-}
-cpSync(join(here, 'game'), join(outDir, 'game'), { recursive: true });
-mkdirSync(join(outDir, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) {
-  cpSync(join(here, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
-}
-
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the
-// bytes; the others refuse an entry the scorer would refuse (more than 4
-// screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of
-// game files in all, or a path under game/ over 1000 bytes).
-const dossier = buildDossier(outDir, {
+const DOSSIER_CAPS = {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   game_max_files: 993,
   game_max_bytes: 50331648,
-  game_path_max_bytes: 1000,
-});
-writeFileSync(join(outDir, 'dossier.json'), dossier);
-console.log(`wrote ${outDir}/dossier.json (${dossier.length} bytes)`);
+};
+
+function main() {
+  const gameDir = join(REPO_ROOT, 'game');
+  const shotsDir = join(REPO_ROOT, 'screenshots');
+  if (!existsSync(gameDir)) throw new Error('game/ directory is missing next to main.ts');
+  if (!existsSync(join(gameDir, 'index.html'))) throw new Error('game/index.html is missing');
+  if (!existsSync(join(REPO_ROOT, 'vendor', 'makefun-game.ts'))) throw new Error('vendor/makefun-game.ts is missing');
+  if (!existsSync(shotsDir)) throw new Error('screenshots/ directory is missing next to main.ts');
+
+  // Start from a clean output directory so stale files can never leak in.
+  rmSync(OUTPUT_DIR, { recursive: true, force: true });
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+
+  cpSync(gameDir, join(OUTPUT_DIR, 'game'), { recursive: true });
+  cpSync(shotsDir, join(OUTPUT_DIR, 'screenshots'), { recursive: true });
+
+  const dossier = buildDossier(OUTPUT_DIR, DOSSIER_CAPS);
+  writeFileSync(join(OUTPUT_DIR, 'dossier.json'), dossier);
+  console.log('Solmar Bay: wrote ' + OUTPUT_DIR + ' (' + dossier.length + ' byte dossier)');
+}
+
+main();
