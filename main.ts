@@ -1,54 +1,46 @@
-// Solmar Bay — submission program (Node 22, standard library only).
-// Copies game/ and screenshots/ into the output directory and writes the
-// dossier.json that buildDossier produces from them, byte for byte.
-import { buildDossier } from './vendor/makefun-game.ts';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+// Solmar Bay — gta6-01 entry program (Node 22, standard library only).
+// The game lives in this directory's game/ folder: plain static files a desktop
+// browser loads offline (game/index.html plus its ES modules, no library, no
+// network request). This program hands it in: it copies game/ and screenshots/
+// from beside this file into the output directory and writes dossier.json,
+// the summary the judge reads, using the vendored make.fun library.
+//
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Serve the game locally with `node serve.ts`, then open http://localhost:8080.
+
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildDossier } from './vendor/makefun-game.ts';
 
-const root = path.dirname(fileURLToPath(import.meta.url));
-const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+const here = fileURLToPath(new URL('.', import.meta.url));
+const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function listFiles(dir, base = '') {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  const files = [];
-  for (const entry of entries) {
-    const rel = base ? `${base}/${entry.name}` : entry.name;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...listFiles(full, rel));
-    else if (entry.isFile()) files.push(rel);
-  }
-  return files;
+// Start from a clean slate so a stale file from an older run can never leak
+// into the handed-in output and break the byte-for-byte reproducibility.
+rmSync(outDir, { recursive: true, force: true });
+mkdirSync(outDir, { recursive: true });
+const indexHtml = join(here, 'game', 'index.html');
+if (!existsSync(indexHtml)) {
+  throw new Error(`main.ts: ${indexHtml} is missing — nothing to hand in`);
+}
+cpSync(join(here, 'game'), join(outDir, 'game'), { recursive: true });
+mkdirSync(join(outDir, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) {
+  cpSync(join(here, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
 }
 
-function copyTree(srcDir, destDir) {
-  for (const rel of listFiles(srcDir)) {
-    const src = path.join(srcDir, rel);
-    const dest = path.join(destDir, rel);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
-  }
-}
-
-function main() {
-  fs.rmSync(outDir, { recursive: true, force: true });
-  fs.mkdirSync(outDir, { recursive: true });
-  copyTree(path.join(root, 'game'), path.join(outDir, 'game'));
-  copyTree(path.join(root, 'screenshots'), path.join(outDir, 'screenshots'));
-  const dossier = buildDossier(outDir, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 48 * 1024 * 1024,
-    game_path_max_bytes: 1000,
-  });
-  fs.writeFileSync(path.join(outDir, 'dossier.json'), dossier);
-  // Sanity: the dossier must stay under the 1.5 MiB gate cap.
-  if (dossier.length > 1536 * 1024) throw new Error(`dossier too large: ${dossier.length} bytes`);
-  const gameFiles = listFiles(path.join(outDir, 'game')).length;
-  const shotFiles = listFiles(path.join(outDir, 'screenshots')).length;
-  console.log(`Solmar Bay: ${gameFiles} game files, ${shotFiles} screenshots, dossier ${dossier.length} bytes -> ${outDir}`);
-}
-
-main();
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the
+// bytes; the others refuse an entry the scorer would refuse (more than 4
+// screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of
+// game files in all, or a path under game/ over 1000 bytes).
+const dossier = buildDossier(outDir, {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  game_max_files: 993,
+  game_max_bytes: 50331648,
+  game_path_max_bytes: 1000,
+});
+writeFileSync(join(outDir, 'dossier.json'), dossier);
+console.log(`wrote ${outDir}/dossier.json (${dossier.length} bytes)`);
