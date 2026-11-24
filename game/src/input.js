@@ -1,39 +1,45 @@
-// Keyboard input: WASD/arrows, Shift, Space, E, P/Esc, H, M, N.
-export function createInput() {
-  const keys = new Set();
-  const pressed = new Set();
-  const listeners = [];
-  function onKeyDown(e) {
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-    if (!e.repeat) pressed.add(e.code);
-    keys.add(e.code);
+// Keyboard input: held keys plus edge-triggered "just pressed" keys, so the
+// game can tell a tap (E, Space on the title screen) from a hold (WASD).
+export class Input {
+  constructor() {
+    this.down = new Set();
+    this.pressed = new Set();
+    this.anyKey = false;
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      this.down.add(e.code);
+      this.pressed.add(e.code);
+      this.anyKey = true;
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        e.preventDefault();
+      }
+    });
+    window.addEventListener('keyup', (e) => this.down.delete(e.code));
+    window.addEventListener('blur', () => this.down.clear());
   }
-  // Clicking the canvas focuses the page so keys land here after a reload.
-  function onPointerDown() { window.focus(); }
-  window.addEventListener('pointerdown', onPointerDown);
-  function onKeyUp(e) { keys.delete(e.code); }
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
-  listeners.push(() => {
-    window.removeEventListener('keydown', onKeyDown);
-    window.removeEventListener('keyup', onKeyUp);
-    window.removeEventListener('pointerdown', onPointerDown);
-  });
-  return {
-    down(code) { return keys.has(code); },
-    axis() {
-      let x = 0;
-      let y = 0;
-      if (keys.has('KeyA') || keys.has('ArrowLeft')) x -= 1;
-      if (keys.has('KeyD') || keys.has('ArrowRight')) x += 1;
-      if (keys.has('KeyW') || keys.has('ArrowUp')) y -= 1;
-      if (keys.has('KeyS') || keys.has('ArrowDown')) y += 1;
-      return { x, y };
-    },
-    run() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
-    wasPressed(code) { return pressed.has(code); },
-    consume(code) { pressed.delete(code); },
-    endFrame() { pressed.clear(); },
-    destroy() { listeners.forEach((f) => f()); },
-  };
+
+  held(code) { return this.down.has(code); }
+
+  // True if any of the given codes was just pressed this frame.
+  hitAny(codes) { return codes.some((c) => this.pressed.has(c)); }
+
+  // True once, on the frame the key went down. Consumed by endFrame().
+  hit(code) { return this.pressed.has(code); }
+
+  axis(neg, pos) {
+    return (this.down.has(pos) ? 1 : 0) - (this.down.has(neg) ? 1 : 0);
+  }
+
+  // WASD plus arrow keys, normalised.
+  moveVector() {
+    const x = this.axis('KeyA', 'KeyD') + this.axis('ArrowLeft', 'ArrowRight');
+    const y = this.axis('KeyW', 'KeyS') + this.axis('ArrowUp', 'ArrowDown');
+    const len = Math.hypot(x, y) || 1;
+    return { x: x / len, y: y / len, active: x !== 0 || y !== 0 };
+  }
+
+  endFrame() {
+    this.pressed.clear();
+    this.anyKey = false;
+  }
 }

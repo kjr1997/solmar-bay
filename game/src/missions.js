@@ -1,190 +1,224 @@
-// Missions: Rico's 5-job story line, taxi fares, packages, spray shop.
-import { MISSIONS, GARAGE, HIDEOUT, VAULT, SPRAY, MARINA_DOCK } from './config.js';
+// Rico's mission line: five jobs in order, each with its own objective
+// tracking, markers and rewards. Missions drive the HUD line, the minimap
+// markers and the off-screen arrow.
+import { MISSIONS, GARAGE, DOCKS, HIDEOUT, VAULT, FARE_TIP, TAXI_FARE } from './config.js';
+import { makeVehicle } from './vehicles.js';
 
-export function createMissionState(save) {
+export function makeMissions(save) {
   return {
-    index: save.missionIndex || 0,
-    stage: 0, // per-mission sub-step
-    timer: 0,
-    target: null,
-    message: '',
-    done: (save.missionsDone || []).slice(),
-    packages: (save.packages || []).slice(),
-    fare: null,
+    index: save.mission, // 0..4, or 5 when the whole line is done
+    done: save.missionDone,
+    stage: 'go', // per-mission stage string
+    progress: 0, // packages delivered / fares picked up
+    timer: 0, // taxi countdown
+    fare: null, // active taxi passenger {x, y, destX, destY, inCar}
+    comet: null, // the mission Comet GT vehicle
     vaultTimer: 0,
-    objective: null,
+    message: '',
+    messageTimer: 0,
   };
 }
 
-export function currentMission(ms) {
-  return MISSIONS[ms.index] || null;
+export function currentMission(m) {
+  return m.index < MISSIONS.length ? MISSIONS[m.index] : null;
 }
 
-function setObjective(ms, x, y, label) {
-  ms.objective = { x, y, label };
-}
-
-export function startMission(ms, save) {
-  const m = currentMission(ms);
-  if (!m) return;
-  ms.stage = 0;
-  ms.timer = m.timeLimit || 0;
-  ms.vaultTimer = 0;
-  if (m.id === 1) {
-    setObjective(ms, GARAGE.x, GARAGE.y, 'Steal a car, bring it to the garage');
-    ms.message = 'Rico: I need wheels. Any car. Bring it to the garage.';
-  } else if (m.id === 2) {
-    ms.drops = dropPoints();
-    setObjective(ms, ms.drops[0].x, ms.drops[0].y, 'Deliver package 1 of 3');
-    ms.message = 'Rico: Three packages. Three addresses. Go.';
-  } else if (m.id === 3) {
-    ms.faresDone = 0;
-    ms.message = 'Rico: Taxi shift. Find a cab, pick up 3 fares. 4 minutes.';
-    setObjective(ms, 1400, 1000, 'Find a cab (yellow) and press E');
-  } else if (m.id === 4) {
-    setObjective(ms, MARINA_DOCK.x, MARINA_DOCK.y, 'Steal the Comet GT at the Marina');
-    ms.message = 'Rico: A Comet GT sits at the Marina. Take it. Expect company.';
-  } else if (m.id === 5) {
-    setObjective(ms, VAULT.x, VAULT.y, 'Reach the Downtown vault');
-    ms.message = 'Rico: The vault. Crack it, grab the cash, run to the hideout.';
+export function missionObjective(m) {
+  const mission = currentMission(m);
+  if (!mission) return 'All jobs done — Solmar Bay is yours. Free roam!';
+  switch (m.index) {
+    case 0: return 'First Wheels: steal any car, drive it to Rico\'s garage.';
+    case 1: return `Package Run: deliver packages (${m.progress}/3).`;
+    case 2: return `Taxi Shift: pick up fares (${m.progress}/3) — ${Math.max(0, Math.ceil(m.timer))}s left.`;
+    case 3: return m.stage === 'steal'
+      ? 'Hot Pursuit: steal the Comet GT from the docks!'
+      : 'Hot Pursuit: deliver the Comet GT to the drop-off — 3 stars!';
+    case 4: return m.stage === 'vault'
+      ? 'The Bay Heist: stand by the vault to crack it (3s) — 4 stars!'
+      : 'The Bay Heist: lose the heat and reach the hideout!';
+    default: return mission.text;
   }
 }
 
-function dropPoints() {
-  return [
-    { x: 2200, y: 600, label: 'Drop-off 1' },
-    { x: 600, y: 1800, label: 'Drop-off 2' },
-    { x: 2800, y: 1400, label: 'Drop-off 3' },
-  ];
-}
-
-function fareSpots() {
-  return [
-    { x: 1000, y: 1000 }, { x: 2600, y: 600 }, { x: 600, y: 2200 },
-    { x: 1800, y: 1800 }, { x: 3000, y: 1000 }, { x: 1400, y: 2200 },
-  ];
-}
-
-export function completeMission(ms, save, events) {
-  const m = currentMission(ms);
-  if (!m) return;
-  const reward = m.reward + (m.vaultCash || 0);
-  save.cash += reward;
-  save.totalEarned += reward;
-  save.missionsDone.push(m.id);
-  ms.done.push(m.id);
-  ms.index += 1;
-  save.missionIndex = ms.index;
-  ms.message = `Job done: ${m.name}. +$${reward}.`;
-  if (events.onComplete) events.onComplete(m, reward);
-  if (currentMission(ms)) startMission(ms, save);
-  else {
-    ms.objective = null;
-    ms.message = 'All Rico jobs done. Free roam: fares, packages, chaos.';
-  }
-}
-
-// Called every frame; returns nothing, mutates mission state and fires events.
-export function updateMissions(ms, save, game, dt, events) {
-  const m = currentMission(ms);
-  if (!m) return;
-  const p = game.player;
-  const at = (x, y, r) => Math.hypot(p.x - x, p.y - y) < r;
-  if (m.timeLimit) {
-    ms.timer -= dt;
-    if (ms.timer <= 0) {
-      ms.message = 'Taxi shift failed — out of time. Talk to Rico to retry.';
-      ms.timer = m.timeLimit;
-      ms.stage = 0;
-      ms.faresDone = 0;
-      startMission(ms, save);
-      return;
+// The world position the player should head for right now (arrow + marker).
+export function missionTarget(game) {
+  const m = game.missions;
+  switch (m.index) {
+    case 0: return { x: GARAGE.x, y: GARAGE.y, label: 'Garage' };
+    case 1: {
+      const drop = game.packageDrops[m.progress];
+      return drop ? { x: drop.x, y: drop.y, label: 'Drop-off' } : null;
     }
+    case 2: {
+      if (!m.fare) return null;
+      if (m.fare.inCar) return { x: m.fare.destX, y: m.fare.destY, label: 'Fare destination' };
+      return { x: m.fare.x, y: m.fare.y, label: 'Passenger' };
+    }
+    case 3: {
+      if (m.stage === 'steal') return { x: DOCKS.x, y: DOCKS.y, label: 'Comet GT' };
+      return { x: game.heistDrop.x, y: game.heistDrop.y, label: 'Drop-off' };
+    }
+    case 4: {
+      if (m.stage === 'vault') return { x: VAULT.x, y: VAULT.y, label: 'Vault' };
+      return { x: HIDEOUT.x, y: HIDEOUT.y, label: 'Hideout' };
+    }
+    default: return null;
   }
-  if (m.id === 1) {
-    if (p.inCar && at(GARAGE.x, GARAGE.y, 90)) completeMission(ms, save, events);
-  } else if (m.id === 2) {
-    const drop = ms.drops[ms.stage];
-    if (drop && at(drop.x, drop.y, 70)) {
-      ms.stage += 1;
-      if (ms.stage >= 3) completeMission(ms, save, events);
-      else {
-        const next = ms.drops[ms.stage];
-        setObjective(ms, next.x, next.y, `Deliver package ${ms.stage + 1} of 3`);
-        if (events.onStep) events.onStep(`Package ${ms.stage} delivered.`);
+}
+
+function completeMission(game, bonusText) {
+  const m = game.missions;
+  const mission = currentMission(m);
+  if (!mission) return;
+  game.save.cash += mission.reward;
+  if (mission.vaultCash) game.save.cash += mission.vaultCash;
+  game.sound.missionDone();
+  m.message = `${mission.name} complete! +$${mission.reward}${mission.vaultCash ? ` + $${mission.vaultCash} vault cash` : ''}${bonusText || ''}`;
+  m.messageTimer = 4;
+  m.index++;
+  m.stage = 'go';
+  m.progress = 0;
+  m.timer = 0;
+  m.fare = null;
+  m.vaultTimer = 0;
+  if (m.index >= MISSIONS.length) {
+    m.done = true;
+    game.save.missionDone = true;
+    game.save.taxiUnlocked = true;
+  }
+  if (m.index === 3) game.save.taxiUnlocked = true; // taxi fares open after job 3
+  game.save.mission = Math.min(m.index, 4);
+  game.persist();
+}
+
+function near(x1, y1, x2, y2, r) {
+  return Math.hypot(x1 - x2, y1 - y2) < r;
+}
+
+// Taxi fare spots: a passenger waiting on a sidewalk, and a destination.
+export function spawnFare(game) {
+  const spots = game.taxiSpots;
+  const from = spots[game.rng.int(0, spots.length - 1)];
+  let to = spots[game.rng.int(0, spots.length - 1)];
+  if (to === from) to = spots[(spots.indexOf(from) + 3) % spots.length];
+  return { x: from.x, y: from.y, destX: to.x, destY: to.y, inCar: false };
+}
+
+export function updateMissions(game, dt) {
+  const m = game.missions;
+  const { player } = game;
+  if (m.messageTimer > 0) m.messageTimer -= dt;
+  const mission = currentMission(m);
+  if (!mission) {
+    // Mission line done: free-roam taxi fares in a taxi, $60 a ride.
+    if (game.save.taxiUnlocked && player.inCar && player.inCar.type === 'taxi') {
+      if (!m.fare) {
+        m.fare = spawnFare(game);
+        m.message = 'Fare waiting — pick them up!';
+        m.messageTimer = 2.5;
+      } else if (!m.fare.inCar && near(player.x, player.y, m.fare.x, m.fare.y, 60)) {
+        m.fare.inCar = true;
+        game.sound.pickup();
+      } else if (m.fare.inCar && near(player.x, player.y, m.fare.destX, m.fare.destY, 70)) {
+        game.save.cash += TAXI_FARE;
+        game.sound.cash();
+        game.persist();
+        m.message = `Fare done! +$${TAXI_FARE}`;
+        m.messageTimer = 2.5;
+        m.fare = null;
       }
     }
-  } else if (m.id === 3) {
-    if (ms.stage === 0) {
-      // Waiting for the player to get into a taxi.
-      if (p.inCar && p.car && p.car.kind === 'taxi') {
-        ms.stage = 1;
-        ms.fare = pickFareSpot();
-        setObjective(ms, ms.fare.x, ms.fare.y, 'Pick up the fare');
-        if (events.onStep) events.onStep('Fare waiting. Drive to the marker.');
+    return;
+  }
+
+  if (m.index === 0) {
+    // Steal any car and bring it to the garage.
+    if (player.inCar && near(player.x, player.y, GARAGE.x, GARAGE.y, 110)) {
+      completeMission(game);
+    }
+  } else if (m.index === 1) {
+    const drop = game.packageDrops[m.progress];
+    if (drop && near(player.x, player.y, drop.x, drop.y, 70)) {
+      m.progress++;
+      game.sound.pickup();
+      if (m.progress >= 3) completeMission(game);
+      else { m.message = `Package ${m.progress}/3 delivered.`; m.messageTimer = 2.5; }
+    }
+  } else if (m.index === 2) {
+    if (m.timer <= 0 && m.stage === 'go') {
+      m.timer = 240;
+      m.stage = 'run';
+      m.fare = spawnFare(game);
+    }
+    if (m.stage === 'run') {
+      m.timer -= dt;
+      if (m.timer <= 0) {
+        m.message = 'Taxi Shift failed — out of time. Try again!';
+        m.messageTimer = 3;
+        m.stage = 'go';
+        m.progress = 0;
+        m.fare = null;
+        return;
       }
-    } else if (ms.stage === 1) {
-      if (ms.fare && at(ms.fare.x, ms.fare.y, 70)) {
-        ms.stage = 2;
-        ms.fare = pickFareSpot();
-        setObjective(ms, ms.fare.x, ms.fare.y, 'Drop the fare off');
-        if (events.onStep) events.onStep('Passenger aboard. Drive to the drop-off.');
-      }
-    } else if (ms.stage === 2) {
-      if (ms.fare && at(ms.fare.x, ms.fare.y, 70)) {
-        ms.faresDone = (ms.faresDone || 0) + 1;
-        save.cash += 80;
-        if (events.onStep) events.onStep(`Fare ${ms.faresDone} of 3 done. +$80 tip.`);
-        if (ms.faresDone >= 3) completeMission(ms, save, events);
-        else {
-          ms.stage = 1;
-          ms.fare = pickFareSpot();
-          setObjective(ms, ms.fare.x, ms.fare.y, 'Pick up the next fare');
+      if (m.fare) {
+        if (!m.fare.inCar && player.inCar && near(player.x, player.y, m.fare.x, m.fare.y, 60)) {
+          m.fare.inCar = true;
+          game.sound.pickup();
+          m.message = 'Passenger aboard — drive to the destination!';
+          m.messageTimer = 2.5;
+        } else if (m.fare.inCar && near(player.x, player.y, m.fare.destX, m.fare.destY, 70)) {
+          m.progress++;
+          game.save.cash += FARE_TIP; // fare tip on top of the job reward
+          game.sound.cash();
+          game.persist();
+          if (m.progress >= 3) completeMission(game, ' (+$150 in tips)');
+          else {
+            m.fare = spawnFare(game);
+            m.message = `Fare ${m.progress}/3 done. Next passenger!`;
+            m.messageTimer = 2.5;
+          }
         }
       }
     }
-  } else if (m.id === 4) {
-    if (ms.stage === 0) {
-      if (p.inCar && p.car && p.car.kind === 'sports') {
-        ms.stage = 1;
-        setObjective(ms, 900, 1400, 'Deliver the Comet GT to the lockup');
-        if (events.onStep) events.onStep('Comet GT secured. 3 stars! Lose the cops, deliver it.');
+  } else if (m.index === 3) {
+    if (m.stage === 'go') {
+      // The Comet GT is parked at the docks; getting in it starts the heat.
+      m.stage = 'steal';
+      if (!m.comet) {
+        m.comet = makeVehicle('sports', DOCKS.x, DOCKS.y + 60, -Math.PI / 2, 'none');
+        game.cars.push(m.comet);
       }
-    } else if (ms.stage === 1) {
-      if (at(900, 1400, 90)) completeMission(ms, save, events);
     }
-  } else if (m.id === 5) {
-    if (ms.stage === 0) {
-      if (at(VAULT.x, VAULT.y, 80)) {
-        ms.stage = 1;
-        ms.vaultTimer = 3;
-        setObjective(ms, VAULT.x, VAULT.y, 'Cracking the vault… hold still');
+    if (m.stage === 'steal' && player.inCar === m.comet) {
+      m.stage = 'deliver';
+      game.addWanted(3);
+      m.message = '3 stars! Get the Comet GT to the drop-off!';
+      m.messageTimer = 3;
+    }
+    if (m.stage === 'deliver' && player.inCar === m.comet && near(player.x, player.y, game.heistDrop.x, game.heistDrop.y, 110)) {
+      completeMission(game);
+    }
+  } else if (m.index === 4) {
+    if (m.stage === 'go') {
+      m.stage = 'vault';
+      game.addWanted(4);
+      m.message = '4 stars! Crack the vault — stand by it for 3 seconds!';
+      m.messageTimer = 3;
+    }
+    if (m.stage === 'vault') {
+      if (!player.inCar && near(player.x, player.y, VAULT.x, VAULT.y, 80)) {
+        m.vaultTimer += dt;
+        if (m.vaultTimer >= 3) {
+          m.stage = 'escape';
+          m.message = 'Vault cracked! Lose the heat and reach the hideout!';
+          m.messageTimer = 3;
+        }
+      } else {
+        m.vaultTimer = Math.max(0, m.vaultTimer - dt * 2);
       }
-    } else if (ms.stage === 1) {
-      ms.vaultTimer -= dt;
-      if (ms.vaultTimer <= 0) {
-        ms.stage = 2;
-        setObjective(ms, HIDEOUT.x, HIDEOUT.y, 'Escape to the hideout');
-        if (events.onStep) events.onStep('Vault open! $2000 grabbed. Run!');
-      }
-    } else if (ms.stage === 2) {
-      if (at(HIDEOUT.x, HIDEOUT.y, 90)) completeMission(ms, save, events);
+    }
+    if (m.stage === 'escape' && near(player.x, player.y, HIDEOUT.x, HIDEOUT.y, 110)) {
+      completeMission(game);
     }
   }
-  // Pay 'n Spray: drive in with wanted stars and $100 to clear them.
-  // No charge when you are already clean — the shop only takes dirty money.
-  if (p.inCar && game.police.wanted > 0 && save.cash >= 100 && at(SPRAY.x, SPRAY.y, 80)) {
-    save.cash -= 100;
-    game.police.wanted = 0;
-    game.police.cops = [];
-    game.police.cruisers = [];
-    p.car.health = 100;
-    ms.message = 'Pay \'n Spray: wanted cleared, car repaired. -$100.';
-    if (events.onStep) events.onStep('Wanted cleared at Pay \'n Spray.');
-  }
-}
-
-function pickFareSpot() {
-  const spots = fareSpots();
-  return spots[Math.floor(Math.random() * spots.length)];
 }

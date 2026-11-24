@@ -1,81 +1,146 @@
-// Screenshot mode: ?shot=cover|street|chase|mission&seed=1 builds a fixed,
-// deterministic scene and sets window.__shotReady when the frame is drawn.
-import { GARAGE, HIDEOUT } from './config.js';
-import { spawnCar } from './vehicles.js';
+// Screenshot scenes: ?shot=cover|street|chase|mission&seed=1 puts the game
+// into a fully deterministic staged frame. Each scene sets the player, a car,
+// the wanted level and the mission, then the main loop renders a few frames
+// and sets window.__shotReady = true for the screenshot script to wait on.
+import { makeVehicle } from './vehicles.js';
 
-const SHOTS = {
-  cover: {
-    missionIndex: 0, wanted: 2, carKind: 'sports', carAngle: -Math.PI / 2,
-    x: 1800, y: 900, label: 'First Wheels',
-  },
-  street: {
-    missionIndex: 0, wanted: 0, onFoot: true,
-    x: 3440, y: 1200, label: 'Beachfront stroll',
-  },
-  chase: {
-    missionIndex: 3, wanted: 4, carKind: 'muscle', carAngle: 0,
-    x: 1400, y: 1000, label: 'Hot Pursuit',
-  },
-  mission: {
-    missionIndex: 4, wanted: 5, carKind: 'sedan', carAngle: Math.PI / 2,
-    x: 1800, y: 1400, label: 'The Bay Heist',
-  },
-};
-
-export function parseShotParams() {
+export function isShotMode() {
   const params = new URLSearchParams(window.location.search);
-  const shot = params.get('shot');
-  const seed = parseInt(params.get('seed') || '1', 10) || 1;
-  if (!shot || !SHOTS[shot]) return null;
-  return { shot, seed, ...SHOTS[shot] };
+  return params.get('shot');
 }
 
-export function applyShotScene(game, shotInfo) {
-  const { missionIndex, wanted, carKind, carAngle, x, y, onFoot } = shotInfo;
-  game.missionState.index = missionIndex;
-  game.save.missionIndex = missionIndex;
-  game.police.wanted = wanted;
-  game.player.x = x;
-  game.player.y = y;
-  game.player.health = 100;
-  if (onFoot) {
-    game.player.inCar = null;
-    game.player.car = null;
-    game.player.angle = -Math.PI / 2;
-  } else {
-    const car = spawnCar(carKind, x, y, carAngle, false);
-    car.isPlayer = true;
-    car.speed = carKind === 'muscle' ? 200 : 120;
-    game.player.car = car;
-    game.player.inCar = car;
-    game.player.angle = carAngle;
+export function shotSeed() {
+  const params = new URLSearchParams(window.location.search);
+  const seed = Number(params.get('seed'));
+  return Number.isFinite(seed) && seed > 0 ? Math.floor(seed) : 1;
+}
+
+// Stage one of the four scenes. Mutates the game in place.
+export function applyShotScene(game, kind) {
+  const { player, wanted, missions, save } = game;
+  // Clear the street around the staged shot so the frame is clean.
+  game.cars.length = 0;
+  game.cops.length = 0;
+  game.peds.length = 0;
+  game.cashDrops.length = 0;
+  game.particles.length = 0;
+  wanted.stars = 0;
+  wanted.hiddenTimer = 0;
+  wanted.dropTimer = 0;
+
+  if (kind === 'cover') {
+    // Comet GT heading north on Ocean Ave (avenue 2840), 2 stars, First Wheels.
+    missions.index = 0;
+    missions.stage = 'go';
+    missions.progress = 0;
+    save.cash = 1250;
+    const car = makeVehicle('sports', 2840, 1500, -Math.PI / 2, 'player');
+    car.speed = 200;
     game.cars.push(car);
-    // A couple of police cruisers in frame for chase scenes.
-    if (wanted >= 4) {
-      const c1 = spawnCar('police', x - 260, y + 60, carAngle, true);
-      c1.isPolice = true;
-      const c2 = spawnCar('police', x - 420, y - 40, carAngle, true);
-      c2.isPolice = true;
-      game.police.cruisers.push(c1, c2);
-      game.cars.push(c1, c2);
-    }
-    if (wanted >= 2) {
-      game.police.cops.push({ x: x + 300, y: y + 180, angle: 0, speed: 150, punchTimer: 0, holdTimer: 0 });
-    }
+    player.inCar = car;
+    player.x = car.x;
+    player.y = car.y;
+    player.angle = car.angle;
+    wanted.stars = 2;
+    game.zone = 'Beachfront';
+    game.zoneToast = 0;
+    addTraffic(game, 6);
+    addPeds(game, 8);
+  } else if (kind === 'street') {
+    // On foot on the beachfront promenade, sea on the right (east).
+    missions.index = 1;
+    missions.stage = 'go';
+    missions.progress = 1;
+    save.cash = 840;
+    player.inCar = null;
+    player.x = 3180;
+    player.y = 1300;
+    player.angle = Math.PI / 2; // facing south down the promenade
+    player.health = 100;
+    wanted.stars = 0;
+    game.zone = 'Beachfront';
+    game.zoneToast = 0;
+    addTraffic(game, 4);
+    addPeds(game, 12);
+  } else if (kind === 'chase') {
+    // Muscle car east on Main St (street 1200), 4 stars, Hot Pursuit.
+    missions.index = 3;
+    missions.stage = 'deliver';
+    missions.progress = 0;
+    save.cash = 2300;
+    const car = makeVehicle('muscle', 900, 1200, 0, 'player');
+    car.speed = 260;
+    game.cars.push(car);
+    player.inCar = car;
+    player.x = car.x;
+    player.y = car.y;
+    player.angle = car.angle;
+    wanted.stars = 4;
+    game.zone = 'Downtown';
+    game.zoneToast = 0;
+    addTraffic(game, 8);
+    addPeds(game, 6);
+    // Two cruisers in pursuit behind the player.
+    const c1 = makeVehicle('police', 700, 1200, 0, 'police');
+    c1.speed = 240;
+    const c2 = makeVehicle('police', 760, 1240, 0, 'police');
+    c2.speed = 230;
+    game.cars.push(c1, c2);
+  } else if (kind === 'mission') {
+    // Sedan south on an avenue, 5 stars, The Bay Heist escape to the hideout.
+    missions.index = 4;
+    missions.stage = 'escape';
+    missions.progress = 0;
+    save.cash = 5200;
+    const car = makeVehicle('sedan', 1800, 700, Math.PI / 2, 'player');
+    car.speed = 230;
+    game.cars.push(car);
+    player.inCar = car;
+    player.x = car.x;
+    player.y = car.y;
+    player.angle = car.angle;
+    wanted.stars = 5;
+    game.zone = 'Downtown';
+    game.zoneToast = 0;
+    addTraffic(game, 7);
+    addPeds(game, 6);
+    const c1 = makeVehicle('police', 1800, 520, Math.PI / 2, 'police');
+    c1.speed = 250;
+    game.cars.push(c1);
   }
-  // Mission objective marker for the scene.
-  if (missionIndex === 0) game.missionState.objective = { x: GARAGE.x, y: GARAGE.y, label: 'First Wheels' };
-  if (missionIndex === 3) game.missionState.objective = { x: 3150, y: 2250, label: 'Steal the Comet GT' };
-  if (missionIndex === 4) game.missionState.objective = { x: HIDEOUT.x, y: HIDEOUT.y, label: 'Escape to the hideout' };
-  // Give the scene a lived-in feel: a few peds near the camera.
-  game.traffic.peds.push(
-    { x: x + 120, y: y + 90, angle: 0.6, speed: 45, skin: '#e8a080', shirt: '#4060c0', walkPhase: 1, down: 0, flee: 0, cash: 0, wander: 4 },
-    { x: x - 140, y: y - 110, angle: 2.4, speed: 50, skin: '#c08050', shirt: '#40a060', walkPhase: 3, down: 0, flee: 0, cash: 0, wander: 4 },
-  );
+  // Camera snaps straight onto the player; the HUD is fully live.
+  game.camera.x = player.x - 640;
+  game.camera.y = player.y - 360;
   game.state = 'play';
-  game.shotMode = shotInfo.shot;
 }
 
-export function markShotReady() {
-  window.__shotReady = true;
+function addTraffic(game, n) {
+  const spots = [
+    [2840, 900, -Math.PI / 2, 'sedan'], [2840, 1900, Math.PI / 2, 'taxi'],
+    [2320, 1200, 0, 'hatch'], [1800, 720, Math.PI / 2, 'van'],
+    [1280, 1680, Math.PI, 'sedan'], [760, 1200, 0, 'truck'],
+    [2320, 2160, Math.PI, 'taxi'], [1800, 240, Math.PI / 2, 'hatch'],
+  ];
+  for (let i = 0; i < n; i++) {
+    const s = spots[(game.shotIndex + i) % spots.length];
+    const v = makeVehicle(s[3], s[0] + game.rng.range(-30, 30), s[1] + game.rng.range(-30, 30), s[2], 'traffic');
+    v.speed = v.cruise;
+    game.cars.push(v);
+  }
+  game.shotIndex += n;
+}
+
+function addPeds(game, n) {
+  const palette = ['#e8b48a', '#c98a6a', '#8a5f4a'];
+  const shirts = ['#d0483e', '#3e6fd0', '#3ed08a', '#e8c33e'];
+  for (let i = 0; i < n; i++) {
+    const x = game.player.x + game.rng.range(-420, 420);
+    const y = game.player.y + game.rng.range(-260, 260);
+    if (x < 60 || x > 3380 || y < 60 || y > 2540) continue;
+    game.peds.push({
+      x, y, angle: game.rng.range(0, Math.PI * 2), speed: 40,
+      skin: palette[i % palette.length], shirt: shirts[i % shirts.length],
+      state: 'walk', downTimer: 0, waitTimer: 3, cash: 20, panic: 0,
+    });
+  }
 }

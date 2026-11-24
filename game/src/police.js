@@ -1,115 +1,149 @@
-// Wanted system and police: stars, foot cops, cruisers, arrest, cooldown.
-import { spawnCar } from './vehicles.js';
-import { resolveBuildings } from './world.js';
+// Police: foot cops who chase, punch and arrest, and cruisers that chase and
+// ram the player's car. Spawn pressure scales with the wanted level; when the
+// player hides, the heat decays (handled in main.js via wanted.js logic here).
+import { WANTED_MAX, HIDE_SECONDS, STAR_DROP_SECONDS } from './config.js';
+import { makeVehicle, driveVehicle } from './vehicles.js';
+import { collideWorld, isWater } from './world.js';
+import { startArrest } from './player.js';
 
-export function createPolice() {
-  return { wanted: 0, hiddenTimer: 0, coolTimer: 0, cops: [], cruisers: [], arrestTimer: 0 };
+export function makeWanted() {
+  return {
+    stars: 0,
+    hiddenTimer: 0, // seconds since last seen committing a crime / spotted
+    dropTimer: 0,
+    lastSeenX: 0, lastSeenY: 0,
+  };
 }
 
-export function addWanted(police, stars) {
-  police.wanted = Math.max(0, Math.min(5, police.wanted + stars));
-  police.hiddenTimer = 0;
-  police.coolTimer = 0;
+export function addWanted(wanted, n, x, y) {
+  wanted.stars = Math.min(WANTED_MAX, wanted.stars + n);
+  wanted.hiddenTimer = 0;
+  wanted.dropTimer = 0;
+  wanted.lastSeenX = x;
+  wanted.lastSeenY = y;
 }
 
-// Call when the player breaks line of sight for a while: starts the 10s hide clock.
-export function startHiding(police) {
-  if (police.wanted > 0) police.hiddenTimer = 10;
-}
-
-export function updatePolice(police, player, world, dt, events) {
-  // Decay: hide 10s, then lose a star every 8s.
-  if (police.wanted > 0) {
-    if (police.hiddenTimer > 0) {
-      police.hiddenTimer -= dt;
-    } else {
-      police.coolTimer += dt;
-      if (police.coolTimer >= 8) {
-        police.coolTimer = 0;
-        police.wanted -= 1;
-      }
-    }
-  }
-  const wantCops = police.wanted > 0 ? Math.min(2 + police.wanted, 6) : 0;
-  const wantCruisers = police.wanted >= 2 ? Math.min(police.wanted - 1, 3) : 0;
-  // Spawn foot cops near the player.
-  while (police.cops.length < wantCops) {
-    const a = Math.random() * Math.PI * 2;
-    police.cops.push({
-      x: player.x + Math.cos(a) * 420, y: player.y + Math.sin(a) * 420,
-      angle: 0, speed: 150 + police.wanted * 12, punchTimer: 0, holdTimer: 0,
-    });
-  }
-  while (police.cruisers.length < wantCruisers) {
-    const a = Math.random() * Math.PI * 2;
-    const car = spawnCar('police',
-      player.x + Math.cos(a) * 500, player.y + Math.sin(a) * 500, 0, true);
-    car.isPolice = true;
-    police.cruisers.push(car);
-  }
-  if (police.wanted === 0) {
-    police.cops = [];
-    police.cruisers = [];
-    police.arrestTimer = 0;
+// Called every frame: if the player has been out of trouble for a while,
+// stars fall one at a time.
+export function updateWantedDecay(wanted, dt, inTrouble) {
+  if (wanted.stars === 0) return;
+  if (inTrouble) {
+    wanted.hiddenTimer = 0;
+    wanted.dropTimer = 0;
     return;
   }
-  // Foot cops chase and grab the player on foot.
-  for (const cop of police.cops) {
-    const d = Math.hypot(player.x - cop.x, player.y - cop.y);
-    if (player.inCar) {
-      cop.angle = Math.atan2(player.y - cop.y, player.x - cop.x);
-      const nx = cop.x + Math.cos(cop.angle) * cop.speed * 0.5 * dt;
-      const ny = cop.y + Math.sin(cop.angle) * cop.speed * 0.5 * dt;
-      const r = resolveBuildings(world, nx, ny, 12);
-      cop.x = r.x; cop.y = r.y;
+  wanted.hiddenTimer += dt;
+  if (wanted.hiddenTimer >= HIDE_SECONDS) {
+    wanted.dropTimer += dt;
+    if (wanted.dropTimer >= STAR_DROP_SECONDS) {
+      wanted.dropTimer = 0;
+      wanted.stars = Math.max(0, wanted.stars - 1);
+    }
+  }
+}
+
+export function makeCop(x, y) {
+  return {
+    x, y, angle: 0, speed: 0, health: 100,
+    state: 'chase', // 'chase' | 'punch' | 'down'
+    punchTimer: 0, punchCooldown: 0, downTimer: 0,
+  };
+}
+
+// Keep the right number of cops on the street for the current heat.
+export function balanceCops(game, dt) {
+  const { wanted, cops, rng } = game;
+  const want = wanted.stars >= 1 ? Math.min(2 + wanted.stars, 7) : 0;
+  if (cops.length < want) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = rng.range(420, 700);
+    const x = game.player.x + Math.cos(a) * d;
+    const y = game.player.y + Math.sin(a) * d;
+    if (!isWater(x, y)) cops.push(makeCop(x, y));
+  } else if (cops.length > want && wanted.stars === 0) {
+    cops.pop();
+  }
+  // Cruisers: one per 2 stars, up to 3, chasing the player's car.
+  const wantCars = wanted.stars >= 2 ? Math.min(3, Math.floor(wanted.stars / 2)) : 0;
+  const cruisers = game.cars.filter((c) => c.driver === 'police');
+  if (cruisers.length < wantCars) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = rng.range(500, 800);
+    const v = makeVehicle('police', game.player.x + Math.cos(a) * d, game.player.y + Math.sin(a) * d, 0, 'police');
+    game.cars.push(v);
+  }
+}
+
+export function updateCops(game, dt) {
+  const { player, cops, wanted, sound } = game;
+  for (const cop of cops) {
+    if (cop.state === 'down') {
+      cop.downTimer -= dt;
+      if (cop.downTimer <= 0) cop.state = 'chase';
       continue;
     }
-    cop.angle = Math.atan2(player.y - cop.y, player.x - cop.x);
-    const nx = cop.x + Math.cos(cop.angle) * cop.speed * dt;
-    const ny = cop.y + Math.sin(cop.angle) * cop.speed * dt;
-    const r = resolveBuildings(world, nx, ny, 12);
-    cop.x = r.x; cop.y = r.y;
-    if (d < 26) {
-      cop.holdTimer += dt;
-      if (cop.holdTimer > 0.4 && cop.punchTimer <= 0) {
-        cop.punchTimer = 0.5;
-        player.health -= 6;
-        if (events.onCopHit) events.onCopHit();
+    const dx = player.x - cop.x;
+    const dy = player.y - cop.y;
+    const d = Math.hypot(dx, dy);
+    cop.angle = Math.atan2(dy, dx);
+    if (player.inCar) {
+      // On foot a cop cannot catch a car: run towards it anyway, and if the
+      // car is slow and close, try to yank the player out (rare, dramatic).
+      if (d < 60 && Math.abs(player.inCar.speed) < 40) {
+        startArrest(player);
       }
-      if (cop.holdTimer >= 1.1) {
-        if (events.onArrested) events.onArrested();
-        cop.holdTimer = 0;
+    } else if (d < 26) {
+      // Close enough to punch / grab.
+      cop.punchCooldown -= dt;
+      if (cop.punchCooldown <= 0) {
+        cop.punchCooldown = 0.9;
+        cop.punchTimer = 0.25;
+        sound.punch();
+        player.health = Math.max(0, player.health - 8);
+        if (player.health <= 0) player.busted = true;
       }
-    } else {
-      cop.holdTimer = 0;
+      // Standing on the player for a beat starts the arrest.
+      if (d < 20 && player.health > 0) startArrest(player);
     }
+    const speed = player.inCar ? 200 : 165;
+    cop.x += Math.cos(cop.angle) * speed * dt;
+    cop.y += Math.sin(cop.angle) * speed * dt;
+    collideWorld(game.world, cop, 12);
     if (cop.punchTimer > 0) cop.punchTimer -= dt;
   }
-  // Cruisers chase and ram the player's car.
-  for (const cruiser of police.cruisers) {
-    const target = player.inCar ? { x: player.x, y: player.y } : { x: player.x, y: player.y };
-    const want = Math.atan2(target.y - cruiser.y, target.x - cruiser.x);
-    let diff = want - cruiser.angle;
+}
+
+// Cruiser AI: steer towards the player's car and ram it. Cruisers use the
+// same driving physics as every other car, so they bounce off buildings
+// instead of ghosting through them.
+export function updateCruisers(game, dt) {
+  const { player, cars, sound, world } = game;
+  const target = player.inCar;
+  for (const v of cars) {
+    if (v.driver !== 'police' || v.dead) continue;
+    const tx = target ? target.x : player.x;
+    const ty = target ? target.y : player.y;
+    const dx = tx - v.x;
+    const dy = ty - v.y;
+    const d = Math.hypot(dx, dy);
+    const want = Math.atan2(dy, dx);
+    let diff = want - v.angle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    cruiser.angle += Math.max(-2.6 * dt, Math.min(2.6 * dt, diff));
-    cruiser.speed += cruiser.def.accel * dt;
-    if (cruiser.speed > cruiser.def.top) cruiser.speed = cruiser.def.top;
-    const nx = cruiser.x + Math.cos(cruiser.angle) * cruiser.speed * dt;
-    const ny = cruiser.y + Math.sin(cruiser.angle) * cruiser.speed * dt;
-    const r = resolveBuildings(world, nx, ny, 20);
-    if (Math.abs(r.x - nx) > 0.5 || Math.abs(r.y - ny) > 0.5) {
-      cruiser.angle += Math.PI / 2;
-      cruiser.speed *= 0.4;
-    }
-    cruiser.x = r.x;
-    cruiser.y = r.y;
-    if (player.inCar && player.car) {
-      const d = Math.hypot(cruiser.x - player.car.x, cruiser.y - player.car.y);
-      if (d < 42) {
-        player.car.health -= 0.35;
-        player.car.speed *= 0.985;
-        if (events.onRam) events.onRam();
+    const steer = Math.max(-1, Math.min(1, diff * 1.4));
+    const throttle = d > 60 ? 1 : 0.5;
+    const prevSpeed = v.speed;
+    driveVehicle(world, v, steer, throttle, false, dt, () => sound.crash());
+    // Ram: a fast hit shoves the player's car and damages it.
+    if (target && d < 52 && prevSpeed > 80) {
+      target.health = Math.max(0, target.health - 4);
+      target.speed *= 0.7;
+      target.x += Math.cos(v.angle) * 26;
+      target.y += Math.sin(v.angle) * 26;
+      if (Math.abs(target.speed) > 60) sound.crash();
+      if (target.health <= 0) {
+        target.dead = true;
+        player.inCar = null;
       }
     }
   }
