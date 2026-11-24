@@ -1,27 +1,31 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solmar Bay — a top-down open-world crime game</title>
+<title>Solmar Bay — Open-World Crime Game</title>
 <style>
-  html, body { margin: 0; padding: 0; background: #0e1420; height: 100%; overflow: hidden; }
-  body { display: flex; align-items: center; justify-content: center; }
-  #wrap { position: relative; width: 100vw; height: 100vh; }
-  canvas {
-    display: block;
-    width: 100vw; height: 100vh;
-    object-fit: contain;
-    background: #0e1420;
-    image-rendering: auto;
+  html, body {
+    margin: 0; padding: 0; height: 100%; background: #0c1016;
+    overflow: hidden; font-family: sans-serif;
+  }
+  #game { display: block; width: 100vw; height: 100vh; }
+  #fallback {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: #ddd; font-size: 15px; text-align: center; display: none;
   }
 </style>
 </head>
 <body>
-<div id="wrap">
-  <canvas id="game" width="1280" height="720"></canvas>
-  <noscript><p style="color:#fff;font-family:sans-serif;text-align:center">Solmar Bay needs JavaScript to play.</p></noscript>
-</div>
+<canvas id="game"></canvas>
+<noscript><p style="color:#fff;text-align:center">Solmar Bay needs JavaScript enabled to play.</p></noscript>
+<div id="fallback">Solmar Bay needs JavaScript enabled to play.</div>
 <script type="module" src="./src/main.js"></script>
+<script>
+  // If the module fails to load, show a plain message instead of a black screen.
+  window.addEventListener('error', function (e) {
+    if (!window.__solmarStarted) document.getElementById('fallback').style.display = 'block';
+  });
+</script>
 </body>
 </html>
